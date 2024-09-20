@@ -1,0 +1,58 @@
+import pandas as pd
+import re
+import numpy as np
+from sklearn.decomposition import PCA
+
+# Function to read samples from the first line
+def extract_samples(file_path):
+    df = pd.read_csv(file_path, header=None, nrows=1, skip_blank_lines=False)
+    first_line = df.iloc[0, 0]
+    samples = first_line.strip('"').split('","')
+    return samples
+
+# Function to extract gene names and numbers
+def extract_genes_and_numbers(file_path):
+    df = pd.read_csv(file_path, header=None, skiprows=1)
+    genes = df[0].apply(lambda x: re.search(r'ENSG[^,]*', x).group(0))
+    numbers = []
+    for index, row in df.iterrows():
+        row_str = ','.join(row.astype(str))
+        numbers_str = re.sub(r'ENSG[^,]*,', '', row_str)
+        numbers.append([float(num) for num in numbers_str.split(',')])
+    return genes.tolist(), numbers
+
+# Function to find and remove low variance genes
+def remove_low_variance_genes(file_path, num_to_remove=4000):
+    genes, numbers = extract_genes_and_numbers(file_path)
+    variances = [np.var(num) for num in numbers]
+    low_variance_genes = sorted(zip(genes, variances), key=lambda x: x[1])[:num_to_remove]
+    filtered_gene_set = set(gene for gene, _ in low_variance_genes)
+    filtered_genes = [gene for gene in genes if gene not in filtered_gene_set]
+    filtered_numbers = [num for gene, num in zip(genes, numbers) if gene not in filtered_gene_set]
+    return filtered_genes, filtered_numbers
+
+# Function to apply PCA and get top contributing genes
+def apply_pca_and_get_top_genes(filtered_numbers, filtered_genes, n_components=2, top_n_genes=3000):
+    pca = PCA(n_components=n_components)
+    pca.fit(filtered_numbers)
+    components = pca.components_
+    top_genes_per_component = {}
+    for i in range(n_components):
+        component = components[i]
+        gene_contributions = sorted(zip(filtered_genes, component), key=lambda x: abs(x[1]), reverse=True)
+        top_genes = gene_contributions[:top_n_genes]
+        top_genes_per_component[f"Component {i + 1}"] = top_genes
+    return top_genes_per_component
+
+# File path to the dataset
+file_path = 'dataset1.csv'
+
+# Remove low variance genes and apply PCA
+filtered_genes, filtered_numbers = remove_low_variance_genes(file_path)
+top_contributing_genes = apply_pca_and_get_top_genes(filtered_numbers, filtered_genes)
+
+# Display results
+for component, genes in top_contributing_genes.items():
+    print(f"\n{component}:")
+    for gene, contribution in genes:
+        print(f"Gene: {gene}, Contribution: {contribution:.6f}")
